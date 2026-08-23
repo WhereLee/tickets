@@ -7,6 +7,7 @@ import com.grab.entity.GrabRecord;
 import com.grab.mapper.GrabRecordMapper;
 import com.grab.mapper.OrderMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,6 +31,9 @@ public class OrderService {
     @Autowired
     private ActivityService activityService;
 
+    @Autowired
+    private StockService stockService;
+
     /**
      * 查询用户订单
      */
@@ -49,12 +53,16 @@ public class OrderService {
     }
 
     /**
-     * 抢购（阶段一：基础版本）
-     * 
-     * 问题：
-     * 1. 没有并发控制，可能超卖
-     * 2. 没有分布式锁，集群环境下会出问题
-     * 3. 性能差，每次都要查数据库
+     * 抢购（阶段二步骤 5：Redis 预扣 + 订单落库，不碰数据库库存行）
+     *
+     * 流程：
+     * 1-4. 校验活动/时间/限购（不变）
+     * 5.   Redis 预扣减（Lua 原子判断+扣减；key 丢失时用 total - 已售订单数对账重建）
+     * 6.   建订单 + 抢购记录（只插自己的行，无行锁竞争）
+     * 失败补偿：事务内任何异常 → Redis 库存加回（INCR）
+     *
+     * 设计变化：数据库 available_stock 字段不再参与抢购（退化为展示值），
+     * 活动期间 Redis 库存是真源，订单表是最终记录
      */
     @Transactional
     public GrabOrder grab(Long userId, Long activityId, Integer quantity) {
@@ -88,35 +96,44 @@ public class OrderService {
             throw new IllegalArgumentException("超过限购数量");
         }
 
-        // 5. 检查库存
-        if (activity.getAvailableStock() < quantity) {
+        // 5. Redis 预扣减库存（Lua 原子判断+扣减，拦截大部分请求）
+        //    库存 key 丢失时（如 Redis 重启）对账重建：总库存 - 已售订单数
+        if (!stockService.hasKey(activityId)) {
+            int sold = orderMapper.countSold(activityId);
+            stockService.initIfAbsent(activityId, activity.getTotalStock() - sold);
+        }
+        if (!stockService.tryDeduct(activityId, quantity)) {
             throw new IllegalArgumentException("库存不足");
         }
 
-        // 6. 扣减库存
-        boolean success = activityService.deductStock(activityId, quantity);
-        if (!success) {
-            throw new IllegalArgumentException("库存不足");
+        try {
+            // 6. 创建订单（只插自己的行，无行锁竞争）
+            GrabOrder order = new GrabOrder();
+            order.setOrderNo(generateOrderNo());
+            order.setUserId(userId);
+            order.setActivityId(activityId);
+            order.setQuantity(quantity);
+            order.setStatus(0); // 待支付
+            order.setExpireTime(now.plusMinutes(30)); // 30分钟后过期
+            orderMapper.insert(order);
+
+            // 7. 记录抢购记录
+            GrabRecord record = new GrabRecord();
+            record.setUserId(userId);
+            record.setActivityId(activityId);
+            record.setOrderId(order.getId());
+            grabRecordMapper.insert(record);
+
+            return order;
+        } catch (DuplicateKeyException e) {
+            // 幂等兜底：唯一索引冲突 = 该用户已抢过（并发时 check-then-act 竞态的最后防线）
+            stockService.rollback(activityId, quantity);
+            throw new IllegalArgumentException("您已参与过该活动");
+        } catch (RuntimeException e) {
+            // 补偿：事务内失败（订单没建成），把 Redis 预扣的库存加回
+            stockService.rollback(activityId, quantity);
+            throw e;
         }
-
-        // 7. 创建订单
-        GrabOrder order = new GrabOrder();
-        order.setOrderNo(generateOrderNo());
-        order.setUserId(userId);
-        order.setActivityId(activityId);
-        order.setQuantity(quantity);
-        order.setStatus(0); // 待支付
-        order.setExpireTime(now.plusMinutes(30)); // 30分钟后过期
-        orderMapper.insert(order);
-
-        // 8. 记录抢购记录
-        GrabRecord record = new GrabRecord();
-        record.setUserId(userId);
-        record.setActivityId(activityId);
-        record.setOrderId(order.getId());
-        grabRecordMapper.insert(record);
-
-        return order;
     }
 
     /**
@@ -154,8 +171,8 @@ public class OrderService {
         order.setStatus(2); // 已取消
         orderMapper.updateById(order);
 
-        // 回滚库存
-        activityService.rollbackStock(order.getActivityId(), order.getQuantity());
+        // 回滚 Redis 预扣库存（数据库库存字段已不参与抢购，无需回滚）
+        stockService.rollback(order.getActivityId(), order.getQuantity());
     }
 
     /**

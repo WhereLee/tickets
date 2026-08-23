@@ -1,5 +1,13 @@
 server:
   port: 8080
+  # Tomcat 线程池（按目标服务器：4 核 3GB）
+  tomcat:
+    # 最大工作线程：4 核 IO 密集场景标准值（线程大部分时间在等 Redis/MySQL，可超核数）
+    max-threads: 200
+    # 等待队列：线程满时最多排队 100 个请求
+    accept-count: 100
+    # 预热线程：默认 10 太小，瞬间冲击时现场建线程来不及，导致连接被拒
+    min-spare-threads: 50
 
 spring:
   datasource:
@@ -7,6 +15,16 @@ spring:
     username: root
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
+    # HikariCP 连接池（公式：核数×2+磁盘数≈9，取 15 留余量）
+    hikari:
+      maximum-pool-size: 15
+      minimum-idle: 5
+  redis:
+    host: localhost
+    port: 6379
+    # 密码：本机无密码，留空
+    password:
+    timeout: 3000ms
 
 mybatis-plus:
   mapper-locations: classpath:/mapper/**/*.xml

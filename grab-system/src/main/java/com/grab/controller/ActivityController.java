@@ -35,11 +35,11 @@ public class ActivityController {
     }
 
     /**
-     * 查询活动详情
+     * 查询活动详情（缓存 + Redis 实时库存）
      */
     @GetMapping("/{id}")
     public Result<Activity> getById(@PathVariable Long id) {
-        Activity activity = activityService.getById(id);
+        Activity activity = activityService.getByIdWithStock(id);
         if (activity == null) {
             return Result.error("活动不存在");
         }

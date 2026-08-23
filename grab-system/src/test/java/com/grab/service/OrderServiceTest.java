@@ -32,6 +32,9 @@ public class OrderServiceTest {
     @Autowired
     private ActivityService activityService;
 
+    @Autowired
+    private StockService stockService;
+
     private User testUser;
     private Activity testActivity;
 
@@ -120,22 +123,27 @@ public class OrderServiceTest {
 
     @Test
     @Order(6)
-    @DisplayName("测试取消订单 - 库存回滚")
+    @DisplayName("测试取消订单 - Redis 库存回滚")
     public void testCancel_RollbackStock() {
-        // 记录初始库存
-        Activity activityBefore = activityService.getById(testActivity.getId());
-        int stockBefore = activityBefore.getAvailableStock();
-        
+        Long activityId = testActivity.getId();
+        // 抢购前 Redis 库存（key 不存在时用总库存兜底：对账 = total - 0）
+        Integer stockBefore = stockService.getStock(activityId);
+        if (stockBefore == null) {
+            stockBefore = testActivity.getTotalStock();
+        }
+
         // 抢购
-        GrabOrder order = orderService.grab(testUser.getId(), testActivity.getId(), 1);
-        
+        GrabOrder order = orderService.grab(testUser.getId(), activityId, 1);
+
+        // 抢购后：Redis 库存减 1
+        assertEquals(stockBefore - 1, stockService.getStock(activityId), "抢购后 Redis 库存应减 1");
+
         // 取消
         orderService.cancel(order.getOrderNo());
-        
-        // 验证库存回滚
-        Activity activityAfter = activityService.getById(testActivity.getId());
-        assertEquals(stockBefore, activityAfter.getAvailableStock());
-        
+
+        // 取消后：Redis 库存回滚
+        assertEquals(stockBefore, stockService.getStock(activityId), "取消后 Redis 库存应回滚");
+
         // 验证订单状态
         GrabOrder cancelledOrder = orderService.getByOrderNo(order.getOrderNo());
         assertEquals(2, cancelledOrder.getStatus()); // 已取消

@@ -1,6 +1,7 @@
 package com.grab.common;
 
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -10,6 +11,15 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 @Slf4j
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * 唯一索引冲突（并发场景兜底，如重复抢购/重复用户名）
+     */
+    @ExceptionHandler(DuplicateKeyException.class)
+    public Result<String> handleDuplicateKeyException(DuplicateKeyException e) {
+        log.warn("数据冲突：{}", e.getMessage());
+        return Result.error(400, "数据已存在，请勿重复提交");
+    }
 
     @ExceptionHandler(Exception.class)
     public Result<String> handleException(Exception e) {

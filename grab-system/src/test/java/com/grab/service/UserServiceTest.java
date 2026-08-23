@@ -30,6 +30,9 @@ public class UserServiceTest {
         assertNotNull(user);
         assertNotNull(user.getId());
         assertEquals(username, user.getUsername());
+        // 密码必须加密存储（BCrypt 密文以 $2a$ 开头，且不是明文）
+        assertNotEquals("123456", user.getPassword(), "密码不能明文存储");
+        assertTrue(user.getPassword().startsWith("$2a$"), "BCrypt 密文以 $2a$ 开头");
     }
 
     @Test

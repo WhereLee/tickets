@@ -96,13 +96,15 @@ public class OrderService {
             throw new IllegalArgumentException("超过限购数量");
         }
 
-        // 5. Redis 预扣减库存（Lua 原子判断+扣减，拦截大部分请求）
-        //    库存 key 丢失时（如 Redis 重启）对账重建：总库存 - 已售订单数
-        if (!stockService.hasKey(activityId)) {
+        // 5. Redis 预扣减库存（Lua 原子判断+扣减，正常路径仅 1 次 Redis 往返）
+        //    key 不存在（-2，如 Redis 重启）时对账重建：总库存 - 已售订单数，再重试一次
+        Long deductCode = stockService.tryDeductCode(activityId, quantity);
+        if (deductCode != null && deductCode == -2L) {
             int sold = orderMapper.countSold(activityId);
             stockService.initIfAbsent(activityId, activity.getTotalStock() - sold);
+            deductCode = stockService.tryDeductCode(activityId, quantity);
         }
-        if (!stockService.tryDeduct(activityId, quantity)) {
+        if (deductCode == null || deductCode < 0) {
             throw new IllegalArgumentException("库存不足");
         }
 

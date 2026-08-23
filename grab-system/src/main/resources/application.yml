@@ -30,7 +30,8 @@ mybatis-plus:
   mapper-locations: classpath:/mapper/**/*.xml
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 生产环境不输出 SQL 日志（StdOutImpl 高并发下是性能杀手：每请求 4-6 条日志 IO）
+    log-impl: org.apache.ibatis.logging.nologging.NoLoggingImpl
   global-config:
     db-config:
       id-type: auto

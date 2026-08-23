@@ -2,22 +2,30 @@ param(
     [int]$Concurrency = 100,
     [int]$UserPool = 3000,
     [int]$ActivityId = 1,
-    [int]$Stock = 5000
+    [int]$Stock = 5000,
+    [string]$TargetHost = 'localhost',
+    [int]$Port = 8080,
+    [switch]$SkipReset
 )
 
 $toolsDir = "C:\Users\lrs\Desktop\py\tickets\grab-system\tools"
 $jmeter = "C:\Users\lrs\Desktop\tools\apache-jmeter-5.6.3\bin\jmeter.bat"
 
 # 0. reset stock before test (so every round starts clean)
-$resetSql = "DELETE FROM grab_record; DELETE FROM grab_order; UPDATE activity SET available_stock = $Stock WHERE id = $ActivityId;"
-& mysql -u root -proot grab_system -e $resetSql | Out-Null
-# stage2: redis stock key must be cleared too (pre-deducted stock lives in redis)
-& "F:\Redis\redis-cli.exe" DEL "stock:$ActivityId" | Out-Null
-Write-Host "[1/3] stock reset to $Stock for activity $ActivityId (db + redis)"
+#    skip when target is remote (use reset script on the server instead)
+if (-not $SkipReset) {
+    $resetSql = "DELETE FROM grab_record; DELETE FROM grab_order; UPDATE activity SET available_stock = $Stock WHERE id = $ActivityId;"
+    & mysql -u root -proot grab_system -e $resetSql | Out-Null
+    # stage2: redis stock key must be cleared too (pre-deducted stock lives in redis)
+    & "F:\Redis\redis-cli.exe" DEL "stock:$ActivityId" | Out-Null
+    Write-Host "[1/3] stock reset to $Stock for activity $ActivityId (db + redis)"
+} else {
+    Write-Host "[1/3] reset skipped (remote target: $TargetHost`:$Port)"
+}
 
 # 1. generate jmx from template (plain string replace, avoid regex issues)
 $template = Get-Content "$toolsDir\scale_template.jmx" -Raw
-$jmxContent = $template.Replace("__THREADS__", $Concurrency.ToString()).Replace("__USERPOOL__", $UserPool.ToString())
+$jmxContent = $template.Replace("__THREADS__", $Concurrency.ToString()).Replace("__USERPOOL__", $UserPool.ToString()).Replace("__HOST__", $TargetHost).Replace("__PORT__", $Port.ToString())
 $jmxPath = "$toolsDir\scale_$Concurrency.jmx"
 [System.IO.File]::WriteAllText($jmxPath, $jmxContent, [System.Text.Encoding]::UTF8)
 Write-Host "[2/3] jmx generated for $Concurrency threads"

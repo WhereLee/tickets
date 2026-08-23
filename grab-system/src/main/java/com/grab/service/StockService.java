@@ -67,12 +67,20 @@ public class StockService {
      * @return true 扣减成功；false 库存不足
      */
     public boolean tryDeduct(Long activityId, Integer quantity) {
-        Long result = redisTemplate.execute(
+        Long result = tryDeductCode(activityId, quantity);
+        return result != null && result >= 0;
+    }
+
+    /**
+     * 预扣减库存（返回码版，供需要区分失败原因的场景）
+     * @return >=0 扣减成功（剩余库存）；-1 库存不足；-2 key 不存在（未初始化）
+     */
+    public Long tryDeductCode(Long activityId, Integer quantity) {
+        return redisTemplate.execute(
                 DEDUCT_SCRIPT,
                 Collections.singletonList(STOCK_KEY_PREFIX + activityId),
                 quantity
         );
-        return result != null && result >= 0;
     }
 
     /**

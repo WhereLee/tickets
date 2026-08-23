@@ -51,8 +51,8 @@
               </elementProp>
             </collectionProp>
           </elementProp>
-          <stringProp name="HTTPSampler.domain">localhost</stringProp>
-          <stringProp name="HTTPSampler.port">8080</stringProp>
+          <stringProp name="HTTPSampler.domain">__HOST__</stringProp>
+          <stringProp name="HTTPSampler.port">__PORT__</stringProp>
           <stringProp name="HTTPSampler.protocol">http</stringProp>
           <stringProp name="HTTPSampler.path">/order/grab</stringProp>
           <stringProp name="HTTPSampler.method">POST</stringProp>

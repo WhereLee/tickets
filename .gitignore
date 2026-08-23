@@ -16,8 +16,11 @@ logs/
 
 # 临时文件
 *.bat
-*.jtl
 *.ps1
+!grab-system/tools/*.bat
+!grab-system/tools/*.ps1
+*.jtl
+*.log
 
 # 系统文件
 .DS_Store

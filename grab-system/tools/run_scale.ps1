@@ -33,6 +33,8 @@ Write-Host "[2/3] jmx generated for $Concurrency threads"
 # 2. run jmeter in non-GUI mode
 $jtlPath = "$toolsDir\scale_$Concurrency.jtl"
 $logPath = "$toolsDir\scale_$Concurrency.log"
+# remove stale jtl first (jmeter appends when file exists on Windows)
+Remove-Item $jtlPath -ErrorAction SilentlyContinue
 $null = & $jmeter -n -t $jmxPath -l $jtlPath -j $logPath
 
 # 3. parse results

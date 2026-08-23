@@ -14,10 +14,10 @@ public class GlobalExceptionHandler {
 
     /**
      * 唯一索引冲突（并发场景兜底，如重复抢购/重复用户名）
+     * 说明：并发幂等兜底是预期内行为，不打日志（高并发下失败路径日志是性能杀手）
      */
     @ExceptionHandler(DuplicateKeyException.class)
     public Result<String> handleDuplicateKeyException(DuplicateKeyException e) {
-        log.warn("数据冲突：{}", e.getMessage());
         return Result.error(400, "数据已存在，请勿重复提交");
     }
 
@@ -27,9 +27,12 @@ public class GlobalExceptionHandler {
         return Result.error("系统异常，请稍后重试");
     }
 
+    /**
+     * 业务拒绝（库存不足/重复抢购/活动未开始等）
+     * 说明：都是预期内的业务分支，不打日志（每请求一条 warn 在高并发下等同于日志风暴）
+     */
     @ExceptionHandler(IllegalArgumentException.class)
     public Result<String> handleIllegalArgumentException(IllegalArgumentException e) {
-        log.warn("参数异常：{}", e.getMessage());
         return Result.error(400, e.getMessage());
     }
 }

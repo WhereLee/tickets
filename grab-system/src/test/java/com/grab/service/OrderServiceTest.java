@@ -35,6 +35,9 @@ public class OrderServiceTest {
     @Autowired
     private StockService stockService;
 
+    @Autowired
+    private OrderQueueService orderQueueService;
+
     private User testUser;
     private Activity testActivity;
 
@@ -58,16 +61,21 @@ public class OrderServiceTest {
 
     @Test
     @Order(1)
-    @DisplayName("测试抢购 - 正常情况")
+    @DisplayName("测试抢购 - 正常情况（异步入队返回）")
     public void testGrab_Success() {
         GrabOrder order = orderService.grab(testUser.getId(), testActivity.getId(), 1);
-        
+
         assertNotNull(order);
         assertNotNull(order.getOrderNo());
         assertEquals(testUser.getId(), order.getUserId());
         assertEquals(testActivity.getId(), order.getActivityId());
         assertEquals(1, order.getQuantity());
         assertEquals(0, order.getStatus()); // 待支付
+
+        // 异步落库：订单在队列中，flush 后数据库可见
+        int flushed = orderQueueService.flushNow();
+        assertTrue(flushed >= 1, "队列中应有待落库订单");
+        assertNotNull(orderService.getByOrderNo(order.getOrderNo()), "flush 后订单应已落库");
     }
 
     @Test
@@ -109,12 +117,13 @@ public class OrderServiceTest {
     @Order(5)
     @DisplayName("测试支付订单")
     public void testPay() {
-        // 先抢购
+        // 先抢购（异步入队）
         GrabOrder order = orderService.grab(testUser.getId(), testActivity.getId(), 1);
-        
+        orderQueueService.flushNow(); // 落库后才能支付
+
         // 支付
         orderService.pay(order.getOrderNo());
-        
+
         // 验证状态
         GrabOrder paidOrder = orderService.getByOrderNo(order.getOrderNo());
         assertEquals(1, paidOrder.getStatus()); // 已支付
@@ -135,10 +144,11 @@ public class OrderServiceTest {
         // 抢购
         GrabOrder order = orderService.grab(testUser.getId(), activityId, 1);
 
-        // 抢购后：Redis 库存减 1
+        // 抢购后：Redis 库存减 1（预扣即时生效，不等落库）
         assertEquals(stockBefore - 1, stockService.getStock(activityId), "抢购后 Redis 库存应减 1");
 
-        // 取消
+        // 落库后取消（未落库的订单返回“处理中”，属预期）
+        orderQueueService.flushNow();
         orderService.cancel(order.getOrderNo());
 
         // 取消后：Redis 库存回滚
@@ -153,9 +163,10 @@ public class OrderServiceTest {
     @Order(7)
     @DisplayName("测试查询用户订单")
     public void testListByUserId() {
-        // 抢购几个订单
+        // 抢购几个订单（异步入队）
         orderService.grab(testUser.getId(), testActivity.getId(), 1);
-        
+        orderQueueService.flushNow(); // 落库后查询可见
+
         // 查询
         List<GrabOrder> orders = orderService.listByUserId(testUser.getId());
         assertNotNull(orders);

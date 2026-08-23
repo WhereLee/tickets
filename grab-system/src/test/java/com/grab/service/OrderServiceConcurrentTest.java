@@ -51,6 +51,9 @@ public class OrderServiceConcurrentTest {
     @Autowired
     private RedisTemplate<String, Object> redisTemplate;
 
+    @Autowired
+    private OrderQueueService orderQueueService;
+
     @Test
     @DisplayName("100 线程抢库存 50：恰好 50 成功、50 库存不足、无超卖")
     public void testConcurrentGrab() throws InterruptedException {
@@ -104,7 +107,8 @@ public class OrderServiceConcurrentTest {
         assertEquals(50, success.get(), "恰好 50 人抢到");
         assertEquals(50, insufficient.get(), "恰好 50 人库存不足");
 
-        // 数据库核对：订单 50、记录 50、库存字段未被扣（不再参与抢购）
+        // 数据库核对：订单 50、记录 50（异步落库：先 flush 队列再核对）
+        orderQueueService.flushNow();
         Long activityId = activity.getId();
         int orderCount = orderMapper.selectList(
                 new QueryWrapper<GrabOrder>().eq("activity_id", activityId)
